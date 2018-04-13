@@ -35,9 +35,9 @@ fi
 # Default other parameters
 STAGING=${STAGING:-0}
 if [ "$STAGING" = "1" ] ; then
-    SERVER="--server https://acme-staging.api.letsencrypt.org/directory"
+    SERVER="--server https://acme-staging-v02.api.letsencrypt.org/directory"
 else
-    SERVER=""
+    SERVER="--server https://acme-v02.api.letsencrypt.org/directory"
 fi
 
 
@@ -71,14 +71,19 @@ mkdir -p /etc/nginx/vhosts/
       -e "s/\${UPSTREAM}/${UPSTREAM}/" \
       /templates/nginx.conf > "$dest"
 
-
 # Process templates
 upstreamId=0
 letscmd=""
 for t in "${DOMAINSARRAY[@]}"
 do
+  if [ -f /etc/letsencrypt/live/${DOMAINSARRAY[0]}/fullchain.pem ]; then
+    vhostType="ssl"
+  else
+    vhostType="plain"
+  fi
+
   dest="/etc/nginx/vhosts/$(basename "${t}").conf"
-  src="/templates/vhost.sample.conf"
+  src="/templates/vhost.${vhostType}.sample.conf"
 
   if [ -r /configs/"${t}".conf ]; then
     echo "Manual configuration found for $t"
@@ -96,39 +101,6 @@ do
   #prepare the letsencrypt command arguments
   letscmd="$letscmd -d $t "
 done
-
-# Check if the SAN list has changed
-if [ ! -f /etc/letsencrypt/san_list ]; then
- cat <<EOF >/etc/letsencrypt/san_list
- "${DOMAIN}"
-EOF
-  fresh=true
-else
-  old_san=$(cat /etc/letsencrypt/san_list)
-  if [ "${DOMAIN}" != "${old_san}" ]; then
-    fresh=true
-  else
-    fresh=false
-  fi
-fi
-
-# Initial certificate request, but skip if cached
-if [ $fresh = true ]; then
-  echo "The SAN list has changed, removing the old certificate and ask for a new one."
-  rm -rf /etc/letsencrypt/{live,archive,keys,renewal}
-
- echo "certbot certonly "${letscmd}" \
-  --standalone --preferred-challenges http --text \
-  "${SERVER}" \
-  --email "${EMAIL}" --agree-tos \
-  --expand " > /etc/nginx/lets
-
-  echo "Running initial certificate request... "
-  /bin/bash /etc/nginx/lets
-fi
-
-#update the stored SAN list
-echo "${DOMAIN}" > /etc/letsencrypt/san_list
 
 #Create the renewal directory (containing well-known challenges)
 mkdir -p /etc/letsencrypt/webrootauth/
